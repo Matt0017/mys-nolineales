@@ -1,43 +1,69 @@
 import logo from './logo.svg';
 import './App.css';
 import React, { Component } from 'react';
-import { acos, dot, evaluate, norm, pi, pow, sqrt } from 'mathjs'
+import { acos, all, create, dot, e, evaluate, exp, isZero, norm, pi, pow, re, sqrt } from 'mathjs'
 import 'math-expression-evaluator'
 import 'nerdamer'
 import nerdamer from 'nerdamer/all';
 
 class App extends Component {
 
+//#region Variables
+	offset = {
+		x: 0,
+		y: 0
+	};
+
+	dragAnchor = {
+		x: -1,
+		y: -1
+	};
+
+	clickAnchor = {
+		x: -1,
+		y: -1
+	};
+
+	scale = 200;
+
+	xdotexpression = "";
+	ydotexpression = "";
+
+	xSolution = {
+		x: [],
+		y: []
+	};
+
+	ySolution = {
+		x: [],
+		y: []
+	};
+
+	bShowNuclinas = true;
+
+	axes = { };
+
+	/** Points of interest to draw lines from. in numeric coordinates */
+	POIs = [];
+	POE = [];
+
+//#endregion
+
+//#region Constructor and Setup
 	constructor()
 	{
 		super();
 		this.canvas = React.createRef(null);
 
-		this.offset = {
-			x: 0,
-			y: 0
-		};
-		this.dragAnchor = {
-			x: -1,
-			y: -1
-		};
-		this.scale = 200;
-
-		this.xdotexpression = "";
-		this.ydotexpression = "";
-		
-		this.xSolution = {
-			x: [],
-			y: []
-		}
-		this.ySolution = {
-			x: [],
-			y: []
-		}
-
 		this.state = {
-			bShowNuclinas: true
+			bShowNuclinas: true,
+			POE: ""
 		}
+
+		let config = {
+			predictable: true
+		}
+		this.math = create(all, config);
 	}
 
 	componentDidMount()
@@ -59,40 +85,9 @@ class App extends Component {
 		canvas.width = parseInt(cs.getPropertyValue('width'), 10);
 		canvas.height = parseInt(cs.getPropertyValue('height'), 10);
 	}
+//#endregion
 
-	onCanvasDragStart(event)
-	{
-		event.stopPropagation();
-		event.preventDefault();
-
-		this.dragAnchor = {
-			x: event.clientX,
-			y: event.clientY
-		};
-	}
-
-	onCanvasDragEnd(event)
-	{
-		this.dragAnchor.x = -1;
-		this.dragAnchor.y = -1;
-	}
-
-	onCanvasDrag(event)
-	{
-		if (this.dragAnchor.x >= 0 && this.dragAnchor.x >= 0)
-		{
-			this.offset = {
-				x: this.offset.x + (event.clientX - this.dragAnchor.x),
-				y: this.offset.y + (event.clientY - this.dragAnchor.y)
-			};
-			this.dragAnchor = {
-				x: event.clientX,
-				y: event.clientY
-			};
-			this.Draw();
-		}
-	}
-
+//#region Draw functions
 	Draw()
 	{
 		var canvas = this.canvas.current;
@@ -100,22 +95,30 @@ class App extends Component {
 
 		ctx.clearRect(0, 0, canvas.width, canvas.height);
 		
-		var axes = {};
+		var axes = this.axes;
 		axes.x0 = this.offset.x + .5 + .5 * canvas.width;	// x0 pixels from left to x=0
 		axes.y0 = this.offset.y + .5 + .5 * canvas.height;	// y0 pixels from top to y=0
 		axes.scale = this.scale;							// 40 pixels from x=0 to x=1
 
-		this.showAxes(ctx, axes);
+		this.drawAxes(ctx, axes);
 
 		this.drawFlowLines(ctx, axes);
 
-		if (this.state.bShowNuclinas)
+		if (this.bShowNuclinas)
 		{
 			this.drawNuclinas(ctx, axes);
 		}
+
+		for (let i = 0; i < this.POIs.length; ++i)
+		{
+			const POI = this.POIs[i];
+			this.drawFullFlow(ctx, axes, POI);
+		}
+
+		this.DrawPOE(ctx, axes);
 	}
 
-	showAxes(ctx, axes)
+	drawAxes(ctx, axes)
 	{
 		const rulerLength = 10;
 
@@ -159,24 +162,9 @@ class App extends Component {
 	{
 		const flowlineCount = 20;
 		const flowlineSteps = 20;
-		const flowlineStepLength = 1 / this.scale;
-		const tipLength = 10;
 
 		const spaceInBetweenX = ctx.canvas.width / (flowlineCount - 3);
 		const spaceInBetweenY = ctx.canvas.height / (flowlineCount - 3);
-		
-		const drawTip = function(from, to) {
-			const direction = {
-				x: to.x - from.x,
-				y: to.y - from.y
-			}
-			const angle = Math.atan2(direction.y, direction.x);
-			ctx.moveTo(to.x, to.y);
-			ctx.lineTo(to.x - tipLength * Math.cos(angle - Math.PI / 6), to.y - tipLength * Math.sin(angle - Math.PI / 6));
-			ctx.moveTo(to.x, to.y);
-			ctx.lineTo(to.x - tipLength * Math.cos(angle + Math.PI / 6), to.y - tipLength * Math.sin(angle + Math.PI / 6));
-		}
-		const smoothenDirection = (d) => { return sqrt(Math.abs(d)) * Math.sign(d); };
 
 		if (this.xdotexpression != "" && this.ydotexpression != "")
 		{
@@ -191,81 +179,135 @@ class App extends Component {
 					const yPos = y * spaceInBetweenY + (this.offset.y % spaceInBetweenY);
 					ctx.moveTo(xPos, yPos);
 
-					let point = this.pixelToPoint(axes, xPos, yPos);
+					let point = this.pixelCoordsToPoint(axes, xPos, yPos);
 
-					// draw line
-
-					let pDir, pPoint, ppPoint, screenPos = null;
-					let flowlineStepLengthMod = 1;
-					let skipNextLine = false;
-
-					for (let step = 0; step < flowlineSteps; step++)
-					{
-						let dir = this.evaluateExpressions(point);
-
-						if (pDir)
-						{
-							let xChangeOfDir = dir.x * pDir.x < 0,
-								yChangeOfDir = dir.y * pDir.y < 0;
-
-							let importantChange = (xChangeOfDir && Math.abs(dir.x) > 0.1) || (yChangeOfDir && Math.abs(dir.y) > 0.1) ;
-							
-							if (importantChange)
-							{
-								let angle = acos(
-									dot([dir.x,dir.y], [pDir.x,pDir.y])
-									/
-									(norm([dir.x,dir.y]) * norm([pDir.x,pDir.y]))
-									) * 180 / pi;
-								if (angle > 89)
-								{
-									point.x -= smoothenDirection(pDir.x) * flowlineStepLength * flowlineStepLengthMod;
-									point.y -= smoothenDirection(pDir.y) * flowlineStepLength * flowlineStepLengthMod;
-
-									pPoint = ppPoint;
-
-									flowlineStepLengthMod /= 2;
-									step--;
-									skipNextLine = true;
-									continue;
-								}
-							}
-						}
-						
-						if (skipNextLine)
-						{
-							skipNextLine = false;
-						}
-						else if (screenPos)
-						{
-							ctx.lineTo(screenPos.x, screenPos.y);
-						}
-						
-						point.x += smoothenDirection(dir.x) * flowlineStepLength * flowlineStepLengthMod;
-						point.y += smoothenDirection(dir.y) * flowlineStepLength * flowlineStepLengthMod;
-
-						screenPos = this.pointToPixel(axes, point.x, point.y)
-
-						// ctx.lineTo(screenPos.x, screenPos.y);
-						// we draw the line at the very beginning of the next iteration to avoid going over
-
-						// draw arrow tip
-						if (step == flowlineSteps-1)
-						{
-							drawTip(this.pointToPixel(axes, pPoint.x, pPoint.y), screenPos);
-						}
-
-						pDir = Object.assign({}, dir);
-						ppPoint = pPoint ? Object.assign({}, pPoint) : null;
-						pPoint = Object.assign({}, point);
-					}
-					if (screenPos)
-					{
-						ctx.lineTo(screenPos.x, screenPos.y);
-					}
+					this.drawFlowLine(ctx, axes, point, { flowlineSteps: flowlineSteps })
 				}
 			}
 			ctx.stroke();
+		}
+	}
+
+	drawFullFlow(ctx, axes, POI)
+	{
+		ctx.beginPath();
+		ctx.strokeStyle = "rgb(0,0,0)";
+		ctx.lineWidth = 2;
+		this.drawFlowLine(ctx, axes, POI, { checkOOB: true, flowlineStepLength: 5 });
+		ctx.stroke();
+		ctx.lineWidth = 1;
+	}
+
+	drawFlowLine(ctx, axes, point, params)
+	{
+		point = Object.assign({}, point);
+
+		if (!params.flowlineSteps)
+		{
+			params.flowlineSteps = 1000;
+		}
+		if (!params.flowlineStepLength)
+		{
+			params.flowlineStepLength = 1;
+		}
+		if (!params.checkOOB)
+		{
+			params.checkOOB = false;
+		}
+
+		const flowlineStepLength = params.flowlineStepLength / this.scale;
+		const slowdownLimit = 5;
+		const oobLimit = 20;
+
+		const isOutOfBounds = (pos, dir, limit) =>
+		{
+			if (pos < 0 && dir < 0 && pos < -oobLimit)
+			{
+				return true;
+			} 
+			if (pos > limit && dir > 0 && (pos - limit) > oobLimit)
+			{
+				return true;
+			}
+			return false;
+		}
+
+		let pDir, pPoint, ppPoint, screenPos = null;
+		let flowlineStepLengthMod = 1, slowdownCounter = 0;
+		let skipNextLine = false;
+
+		for (let step = 0; step < params.flowlineSteps; step++)
+		{
+			let dir = this.evaluateExpressions(point);
+
+			if (pDir)
+			{
+				let xChangeOfDir = dir.x * pDir.x < 0,
+					yChangeOfDir = dir.y * pDir.y < 0;
+
+				let importantChange = (xChangeOfDir && Math.abs(dir.x) > 0.1) || (yChangeOfDir && Math.abs(dir.y) > 0.1) ;
+				
+				if (importantChange)
+				{
+					let angle = acos(
+						dot([dir.x,dir.y], [pDir.x,pDir.y])
+						/
+						(norm([dir.x,dir.y]) * norm([pDir.x,pDir.y]))
+						) * 180 / pi;
+					if (angle > 89)
+					{
+						if (slowdownCounter == slowdownLimit)
+						{
+							break;
+						}
+						point.x -= this.smoothenDirection(pDir.x) * flowlineStepLength * flowlineStepLengthMod;
+						point.y -= this.smoothenDirection(pDir.y) * flowlineStepLength * flowlineStepLengthMod;
+
+						pPoint = ppPoint;
+
+						flowlineStepLengthMod /= 2;
+						slowdownCounter++;
+						step--;
+						skipNextLine = true;
+						continue;
+					}
+				}
+			}
+			
+			if (skipNextLine)
+			{
+				skipNextLine = false;
+			}
+			else if (screenPos)
+			{
+				if (params.checkOOB && (isOutOfBounds(screenPos.x, dir.x, ctx.canvas.width) || isOutOfBounds(screenPos.y, -dir.y, ctx.canvas.height)))
+				{
+					break;
+				}
+				ctx.lineTo(screenPos.x, screenPos.y);
+			}
+			
+			point.x += this.smoothenDirection(dir.x) * flowlineStepLength * flowlineStepLengthMod;
+			point.y += this.smoothenDirection(dir.y) * flowlineStepLength * flowlineStepLengthMod;
+
+			screenPos = this.pointToPixel(axes, point);
+
+			// ctx.lineTo(screenPos.x, screenPos.y);
+			// we draw the line at the very beginning of the next iteration to avoid going over
+
+			// draw arrow tip
+			if (step == params.flowlineSteps-1)
+			{
+				this.drawTip(ctx, this.pointToPixel(axes, pPoint), screenPos, { tipLength: 10 });
+			}
+
+			pDir = Object.assign({}, dir);
+			ppPoint = pPoint ? Object.assign({}, pPoint) : null;
+			pPoint = Object.assign({}, point);
+		}
+		if (screenPos)
+		{
+			ctx.lineTo(screenPos.x, screenPos.y);
 		}
 	}
 
@@ -284,17 +326,20 @@ class App extends Component {
 		// Nuclina Y
 		ctx.strokeStyle = "rgb(120,0,120)";
 		this.drawNuclinaInDirection(ctx, axes, this.ySolution.x, true);
-		this.drawNuclinaInDirection(ctx, axes, this.ySolution.y, false);
+		this.drawNuclinaInDirection(ctx, axes, this.ySolution.y, false, this.ydotexpression);
 
 		ctx.stroke();
 	}
 
-	drawNuclinaInDirection(ctx, axes, solutions, xDirection)
+	drawNuclinaInDirection(ctx, axes, solutions, xDirection, altExpression)
 	{
 		const increment = 5;
 
 		const limit = xDirection ? ctx.canvas.height : ctx.canvas.width;
 		const subVar = xDirection ? 'y': 'x';
+		const solveVar = xDirection ? 'x': 'y';
+		
+		const nAltExpression = nerdamer(altExpression);
 
 		let current = -increment
 
@@ -307,12 +352,28 @@ class App extends Component {
 		while (current <= limit + increment)
 		{
 			const currentPoint = xDirection ? this.YToPoint(axes, current) : this.XToPoint(axes, current); 
-			
+
 			for (let sI = 0; sI < solutions.length; sI++)
 			{
 				let scope = {};
 				scope[subVar] = currentPoint;
-				const point = evaluate(solutions[sI].toString(), scope)
+				
+				let point = this.AproximateComplex(this.math.evaluate(solutions[sI].toString(), scope));
+
+				if (point.isComplex)
+				{
+					continue;
+				}
+
+				if (typeof(point) == 'number' && isNaN(point))
+				{
+					// We are dealing with complex numbers, we need a more robust solution
+					// As of now, we don't have one, so just // TODO log a "not spamy" warning to the user
+
+					// const altsolution = nAltExpression.sub(subVar, currentPoint).solveFor(solveVar).map( s => s.evaluate().toString());
+					continue;
+				}
+
 
 				let value = this.numberFromExpression(point);
 				let valuePixel =  xDirection ? this.XToPixel(axes, value) : this.YToPixel(axes, value);
@@ -342,6 +403,24 @@ class App extends Component {
 		ctx.stroke();
 	}
 
+	DrawPOE(ctx, axes)
+	{
+		const radius = 5;
+
+		for (let i = 0; i < this.POE.length; i++)
+		{
+			const POE = this.POE[i];
+			const pixelPOE = this.pointToPixel(axes, POE);
+			
+			ctx.fillStyle = "#00D0D0";
+			ctx.beginPath();
+			ctx.arc(pixelPOE.x, pixelPOE.y, radius, 0, 2 * this.math.pi);
+			ctx.fill();
+		}
+	}
+//#endregion
+
+//#region Utilities
 	numberFromExpression(exp)
 	{
 		exp = exp.toString();
@@ -361,26 +440,6 @@ class App extends Component {
 		return NaN;
 	}
 
-	pixelToPoint(axes, x, y)
-	{
-		return {
-			x: this.XToPoint(axes, x),
-			y: this.YToPoint(axes, y),
-		}
-	}
-	XToPoint(axes, x) { return (x - axes.x0) / axes.scale; }
-	YToPoint(axes, y) { return ((y - axes.y0) / axes.scale)*-1; }
-
-	pointToPixel(axes, x, y)
-	{
-		return {
-			x: this.XToPixel(axes, x),
-			y: this.YToPixel(axes, y),
-		}
-	}
-	XToPixel(axes, x) { return x * axes.scale + axes.x0; }
-	YToPixel(axes, y) { return y * -1 * axes.scale + axes.y0; }
-
 	evaluateExpressions(point)
 	{
 		try {
@@ -392,6 +451,301 @@ class App extends Component {
 		{
 			return -1;	
 		}
+	}
+
+	pixelCoordsToPoint(axes, x, y)
+	{
+		return {
+			x: this.XToPoint(axes, x),
+			y: this.YToPoint(axes, y),
+		}
+	}
+	XToPoint(axes, x) { return (x - axes.x0) / axes.scale; }
+	YToPoint(axes, y) { return ((y - axes.y0) / axes.scale)*-1; }
+
+	pointToPixel(axes, point)
+	{
+		return this.pointCoordsToPixel(axes, point.x, point.y); 
+	}
+	pointCoordsToPixel(axes, x, y)
+	{
+		return {
+			x: this.XToPixel(axes, x),
+			y: this.YToPixel(axes, y),
+		}
+	}
+	XToPixel(axes, x) { return x * axes.scale + axes.x0; }
+	YToPixel(axes, y) { return y * -1 * axes.scale + axes.y0; }
+
+	smoothenDirection(d) { return sqrt(Math.abs(d)) * Math.sign(d); }
+
+	/** Moves and draws an arrow tip. doesn't perform a stroke. Does not draw a line between from an to. */
+	drawTip(ctx, from, to, params) {
+		const direction = {
+			x: to.x - from.x,
+			y: to.y - from.y
+		}
+		const angle = Math.atan2(direction.y, direction.x);
+		ctx.moveTo(to.x, to.y);
+		ctx.lineTo(to.x - params.tipLength * Math.cos(angle - Math.PI / 6), to.y - params.tipLength * Math.sin(angle - Math.PI / 6));
+		ctx.moveTo(to.x, to.y);
+		ctx.lineTo(to.x - params.tipLength * Math.cos(angle + Math.PI / 6), to.y - params.tipLength * Math.sin(angle + Math.PI / 6));
+	}
+//#endregion
+
+//#region Math
+	DeterminePOE(expression, solutionFor1, expression2, solutionFor2)
+	{
+		if (this.xdotexpression == "" || this.xdotexpression == "")
+		{
+			return;
+		}
+		
+		this.POE = [];
+		
+		{
+			const includesX = expression.indexOf('x') != -1;
+			const includesY = expression.indexOf('y') != -1;
+
+			let totalFound = [];
+
+			//TODO cuidado con el caso en que f(x) = g(x), van a tirar las raices junto con y = 0
+			// Both have x
+			if (includesX && solutionFor2.x.length > 0)
+			{
+				const foundPOEs1 = this.DeterminePOE_Internal(expression, expression2, solutionFor2, true);
+				const foundPOEs2 = this.DeterminePOE_Internal(expression2, expression, solutionFor1, true);
+				totalFound = foundPOEs1.concat(foundPOEs2);
+			}
+
+			// Both have y
+			if (includesY && solutionFor2.y.length > 0)
+			{
+				const foundPOEs1 = this.DeterminePOE_Internal(expression, expression2, solutionFor2, false);
+				const foundPOEs2 = this.DeterminePOE_Internal(expression2, expression, solutionFor1, false);
+				totalFound.push(foundPOEs1.concat(foundPOEs2));
+			}
+
+			console.log(totalFound);
+			for (let i = 0; i < totalFound.length; i++)
+			{
+				const poe = totalFound[i];
+				if (!this.POE.includes((p) => this.IsNear(p.x, poe.x) && this.IsNear(p.y, poe.y)))
+				{
+					this.POE.push(poe);
+				}
+			}
+
+			if (this.POE.length > 0)
+			{
+				return;
+			}
+		}
+
+		//If they share no variables then let each one determine a variable
+		const fHasX = solutionFor1.x.length > 0;
+		const fHasY = solutionFor1.y.length > 0;
+		const sHasX = solutionFor2.x.length > 0;
+		const sHasY = solutionFor2.y.length > 0;
+
+		if ((fHasX && sHasY) || (fHasY && sHasX))
+		{
+			const fVar = fHasX ? 'x' : 'y';
+			const sVar = sHasY ? 'y' : 'x';
+
+			for (let sFI = 0; sFI < solutionFor1[fVar].length; sFI++)
+			{
+				const sF = solutionFor1[fVar][sFI];
+				const f = this.AproximateComplex(this.math.evaluate(sF.toString()));
+				
+				if (f.isComplex)
+				{
+					continue;
+				}
+				
+				for (let sSI = 0; sSI < solutionFor2[sVar].length; sSI++)
+				{
+					const sS = solutionFor2[sVar][sSI];
+					const s = this.AproximateComplex(this.math.evaluate(sS.toString()));
+
+					if (!s.isComplex)
+					{
+						this.POE.push({
+							x: fHasX ? f : s,
+							y: fHasY ? f: s
+						});
+					}
+				}
+			}
+		}
+
+		//TODO uno puede ser 0 directamente
+
+		console.warn("idk");
+	}
+
+	DeterminePOE_Internal(expression, expression2, solutionFor2, subX)
+	{
+		const subVar = subX ? 'x' : 'y';
+		const solveVar = subX ? 'y' : 'x';
+
+		const nExpression = nerdamer(expression)
+
+		let foundPOEs = [];
+
+		// Substitute one equation for the other and get one value
+		let solveValues = [];
+		for (let sI = 0; sI < solutionFor2[subVar].length; sI++)
+		{
+			const solution = solutionFor2[subVar][sI];
+			
+			let solveVarSolutions;
+			try
+			{
+				solveVarSolutions = nExpression.sub(subVar, solution).evaluate().solveFor(solveVar);
+			} catch (e)
+			{
+				console.log(e);
+				continue;
+			}
+			
+			for (let sI = 0; sI < solveVarSolutions.length; sI++)
+			{
+				const solveS = this.AproximateComplex(solveVarSolutions[sI]);
+				
+				if (solveS.isImaginary())
+				{
+					continue;
+				}
+				// super ineficiente pero bueno
+				if (!solveValues.includes((s) => s.toString() == solveS.toString()))
+				{
+					solveValues.push(solveS);
+				}
+			}
+		}
+		// Get the other value from one expression
+		let pairs = [];
+		for (let sI = 0; sI < solveValues.length; sI++)
+		{
+			const s = solveValues[sI];
+			
+			let foundSolutions = []
+			for (let sI = 0; sI < solutionFor2[subVar].length; sI++)
+			{
+				const solution = solutionFor2[subVar][sI];
+				const sub = this.AproximateComplex(solution.sub(solveVar, s).evaluate());
+
+				if (!sub.isImaginary())
+				{
+					const subNum = this.numberFromExpression(evaluate(sub.toString()));
+					const solveNum = this.numberFromExpression(evaluate(s.toString()));
+					const pair = {
+						x: subX ? subNum : solveNum,
+						y: subX ? solveNum : subNum
+					}
+					if (!pairs.includes((p) => this.IsNear(p.x, subX ? subNum : solveNum) && this.IsNear(p.y, subX ? solveNum : subNum)))
+					{
+						pairs.push(pair);
+					}
+				}
+			}
+		}
+		// validate all pairs
+		for (let pI = 0; pI < pairs.length; pI++)
+		{
+			const pair = pairs[pI];
+			const num = evaluate(expression, { x: pair.x, y: pair.y });
+			const num2 = evaluate(expression2, { x: pair.x, y: pair.y });
+
+			if (this.IsNear(this.numberFromExpression(num), 0) && this.IsNear(this.numberFromExpression(num2), 0))
+			{
+				foundPOEs.push(pair);
+			}
+		}
+		return foundPOEs;
+	}
+
+	IsNear(a, b)
+	{
+		return Math.abs(a - b) < 0.000001;
+	}
+
+	AproximateComplex(point)
+	{
+		if (point.isComplex && this.IsNear(point.im, 0))
+		{
+			return point.re;
+		}
+		//TODO probably could look nice with a typeof()
+		else if (point.isImaginary && point.isImaginary() && this.IsNear(nerdamer.imagpart(point), 0))
+		{
+			return nerdamer.realpart(point);
+		}
+		return point;
+	}
+
+	prepareSolutionFromExpression(expression, solution)
+	{
+		// Pre calculate solutions for x and y (if applies) for the expression
+		const includesX = expression.indexOf('x') != -1;
+		const includesY = expression.indexOf('y') != -1;
+
+		const nExpression = nerdamer(expression)
+
+		// TODO Simplification doesn't work correctly so had to remove it, it might be valuable to use another library as it would make things faster for Nuclinas.
+		solution.x = includesX ? nExpression.solveFor('x')/*.map( s => s.simplify())*/ : [];
+		solution.y = includesY ? nExpression.solveFor('y')/*.map( s => s.simplify())*/ : [];
+	}
+//#endregion
+
+//#region UI
+	updateXDotExpression(event)
+	{
+		this.xdotexpression = event.target.value.toLocaleLowerCase();
+		this.prepareSolutionFromExpression(this.xdotexpression, this.xSolution);
+
+		this.DeterminePOE(this.xdotexpression, this.xSolution, this.ydotexpression, this.ySolution);
+		this.POIs = [];
+
+		this.Draw();
+	}
+
+	updateYDotExpression(event)
+	{
+		this.ydotexpression = event.target.value.toLocaleLowerCase();
+		this.prepareSolutionFromExpression(this.ydotexpression, this.ySolution);
+		
+		this.DeterminePOE(this.ydotexpression, this.ySolution, this.xdotexpression, this.xSolution);
+		this.POIs = [];
+
+		this.Draw();
+	}
+
+	ShowNuclinas(event)
+	{
+		this.bShowNuclinas = event.target.checked;
+		this.setState( { bShowNuclinas: this.bShowNuclinas });
+		this.Draw();
+	}
+
+	onCanvasDragStart(event)
+	{
+		event.stopPropagation();
+		event.preventDefault();
+
+		this.dragAnchor = {
+			x: event.clientX,
+			y: event.clientY
+		};
+	}
+
+	onCanvasMouseDown(event)
+	{
+		this.clickAnchor = {
+			x: event.clientX,
+			y: event.clientY
+		};
 	}
 
 	zoomCanvas(event)
@@ -412,60 +766,75 @@ class App extends Component {
 		this.Draw();
 	}
 
-	updateXDotExpression(event)
+	onAppMouseUp(event)
 	{
-		this.xdotexpression = event.target.value.toLocaleLowerCase();
-		this.prepareSolutionFromExpression(this.xdotexpression, this.xSolution);
+		// check if it was a stationary click
+		const acceptableDeltaSq = 5;
+
+		const sqDistance = pow(event.clientX - this.clickAnchor.x, 2) + pow(event.clientY - this.clickAnchor.y, 2)
+		if (sqDistance < acceptableDeltaSq)
+		{
+			this.onCanvasClick(event);
+		}
+
+		//drag ended somwhere
+		this.dragAnchor.x = -1;
+		this.dragAnchor.y = -1;
+	}
+
+	onCanvasClick(event)
+	{
+		const canvasRect = event.target.getBoundingClientRect();
+		const point = this.pixelCoordsToPoint(this.axes, event.clientX - canvasRect.left, event.clientY - canvasRect.top);
+		this.POIs.push(point);
 
 		this.Draw();
 	}
 
-	updateYDotExpression(event)
+	onAppDrag(event)
 	{
-		this.ydotexpression = event.target.value.toLocaleLowerCase();
-		this.prepareSolutionFromExpression(this.ydotexpression, this.ySolution);
-		
-		this.Draw();
+		if (this.dragAnchor.x >= 0 && this.dragAnchor.x >= 0)
+		{
+			this.offset = {
+				x: this.offset.x + (event.clientX - this.dragAnchor.x),
+				y: this.offset.y + (event.clientY - this.dragAnchor.y)
+			};
+			this.dragAnchor = {
+				x: event.clientX,
+				y: event.clientY
+			};
+			this.Draw();
+		}
 	}
-
-	prepareSolutionFromExpression(expression, solution)
-	{
-		// Pre calculate solutions for x and y (if applies) for the expression
-		const includesX = expression.indexOf('x') != -1;
-		const includesY = expression.indexOf('y') != -1;
-
-		const nExpression = nerdamer(expression)
-
-		solution.x = includesX ? nExpression.solveFor('x').map( exp => exp.toString()) : []
-		solution.y = includesY ? nExpression.solveFor('y').map( exp => exp.toString()) : []
-	}
-
-	ShowNuclinas(event)
-	{
-		this.setState({ bShowNuclinas: event.target.checked })
-		this.Draw();
-	}
+//#endregion
 
 	render()
 	{
-		return <div className="App" onMouseMove={(e) => this.onCanvasDrag(e)} onMouseUp={(e) => this.onCanvasDragEnd(e)}>
-			<header className="App-header">
-				<div className='container'>
-					<div className='inputs'>
-						x dot <input onChange={(e) => this.updateXDotExpression(e)}></input><br/>
-						y dot <input onChange={(e) => this.updateYDotExpression(e)}></input><br/>
-						Nuclinas <input type="checkbox" onChange={(e) => this.ShowNuclinas(e)} checked={this.state.bShowNuclinas}></input><br/>
+		return (
+			<div className="App" 
+				onMouseMove={(e) => this.onAppDrag(e)}
+				onMouseUp={(e) => this.onAppMouseUp(e)}
+			>
+				<header className="App-header">
+					<div className='container'>
+						<div className='inputs'>
+							x dot <input onChange={(e) => this.updateXDotExpression(e)}></input><br/>
+							y dot <input onChange={(e) => this.updateYDotExpression(e)}></input><br/>
+							Nuclinas <input type="checkbox" onChange={(e) => this.ShowNuclinas(e)} checked={this.state.bShowNuclinas}></input><br/>
+							Puntos de equilibrio: {this.state.POE}
+						</div>
+						<div className="canvas-container">
+							<canvas ref={this.canvas} className="main-canvas"
+								onDragStart={(e) => this.onCanvasDragStart(e)} draggable={true}
+								onMouseDown={(e) => this.onCanvasMouseDown(e)}
+								onWheel={(e) => this.zoomCanvas(e)}>
+								
+							</canvas>
+						</div>
 					</div>
-					<div className="canvas-container">
-						<canvas ref={this.canvas} className="main-canvas"
-							onDragStart={(e) => this.onCanvasDragStart(e)} draggable={true}
-							onWheel={(e) => this.zoomCanvas(e)}>
-							
-						</canvas>
-					</div>
-				</div>
-			</header>
-		</div>
+				</header>
+			</div>
+		);
 	}
 }
 
