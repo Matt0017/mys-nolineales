@@ -1,10 +1,10 @@
-import logo from './logo.svg';
 import './App.css';
 import React, { Component } from 'react';
-import { acos, all, create, dot, e, evaluate, exp, isZero, norm, pi, pow, re, sqrt } from 'mathjs'
+import { acos, all, create, dot, evaluate, norm, pi, pow, sqrt } from 'mathjs'
 import 'math-expression-evaluator'
 import 'nerdamer'
 import nerdamer from 'nerdamer/all';
+import Llave from './soporte-abierto.png'
 
 class App extends Component {
 
@@ -166,7 +166,7 @@ class App extends Component {
 		const spaceInBetweenX = ctx.canvas.width / (flowlineCount - 3);
 		const spaceInBetweenY = ctx.canvas.height / (flowlineCount - 3);
 
-		if (this.xdotexpression != "" && this.ydotexpression != "")
+		if (this.xdotexpression !=="" && this.ydotexpression !=="")
 		{
 			ctx.beginPath();
 			ctx.strokeStyle = "rgb(50,100,178)"; 
@@ -256,7 +256,7 @@ class App extends Component {
 						) * 180 / pi;
 					if (angle > 89)
 					{
-						if (slowdownCounter == slowdownLimit)
+						if (slowdownCounter === slowdownLimit)
 						{
 							break;
 						}
@@ -296,7 +296,7 @@ class App extends Component {
 			// we draw the line at the very beginning of the next iteration to avoid going over
 
 			// draw arrow tip
-			if (step == params.flowlineSteps-1)
+			if (step === params.flowlineSteps-1)
 			{
 				this.drawTip(ctx, this.pointToPixel(axes, pPoint), screenPos, { tipLength: 10 });
 			}
@@ -313,7 +313,7 @@ class App extends Component {
 
 	drawNuclinas(ctx, axes)
 	{
-		if (this.xdotexpression == "" || this.ydotexpression == "")
+		if (this.xdotexpression === "" || this.ydotexpression === "")
 		{
 			return;
 		}
@@ -337,9 +337,6 @@ class App extends Component {
 
 		const limit = xDirection ? ctx.canvas.height : ctx.canvas.width;
 		const subVar = xDirection ? 'y': 'x';
-		const solveVar = xDirection ? 'x': 'y';
-		
-		const nAltExpression = nerdamer(altExpression);
 
 		let current = -increment
 
@@ -365,7 +362,7 @@ class App extends Component {
 					continue;
 				}
 
-				if (typeof(point) == 'number' && isNaN(point))
+				if (typeof(point) === 'number' && isNaN(point))
 				{
 					// We are dealing with complex numbers, we need a more robust solution
 					// As of now, we don't have one, so just // TODO log a "not spamy" warning to the user
@@ -432,7 +429,7 @@ class App extends Component {
 		}
 		
 		let fract = exp.toString().split("/");
-		if (fract.length == 2)
+		if (fract.length === 2)
 		{
 			return (parseInt(fract[0]) / parseInt(fract[1]));
 		}
@@ -496,7 +493,7 @@ class App extends Component {
 //#region Math
 	DeterminePOE(expression, solutionFor1, expression2, solutionFor2)
 	{
-		if (this.xdotexpression == "" || this.xdotexpression == "")
+		if (this.xdotexpression === "" || this.xdotexpression === "")
 		{
 			return;
 		}
@@ -504,8 +501,8 @@ class App extends Component {
 		this.POE = [];
 		
 		{
-			const includesX = expression.indexOf('x') != -1;
-			const includesY = expression.indexOf('y') != -1;
+			const includesX = expression.indexOf('x') !==-1;
+			const includesY = expression.indexOf('y') !==-1;
 
 			let totalFound = [];
 
@@ -618,7 +615,7 @@ class App extends Component {
 					continue;
 				}
 				// super ineficiente pero bueno
-				if (!solveValues.includes((s) => s.toString() == solveS.toString()))
+				if (!solveValues.includes((s) => s.toString() === solveS.toString()))
 				{
 					solveValues.push(solveS);
 				}
@@ -630,7 +627,6 @@ class App extends Component {
 		{
 			const s = solveValues[sI];
 			
-			let foundSolutions = []
 			for (let sI = 0; sI < solutionFor2[subVar].length; sI++)
 			{
 				const solution = solutionFor2[subVar][sI];
@@ -688,8 +684,8 @@ class App extends Component {
 	prepareSolutionFromExpression(expression, solution)
 	{
 		// Pre calculate solutions for x and y (if applies) for the expression
-		const includesX = expression.indexOf('x') != -1;
-		const includesY = expression.indexOf('y') != -1;
+		const includesX = expression.indexOf('x') !==-1;
+		const includesY = expression.indexOf('y') !==-1;
 
 		const nExpression = nerdamer(expression)
 
@@ -815,12 +811,27 @@ class App extends Component {
 				onMouseMove={(e) => this.onAppDrag(e)}
 				onMouseUp={(e) => this.onAppMouseUp(e)}
 			>
-				<header className="App-header">
+				
 					<div className='container'>
 						<div className='inputs'>
-							x dot <input onChange={(e) => this.updateXDotExpression(e)}></input><br/>
-							y dot <input onChange={(e) => this.updateYDotExpression(e)}></input><br/>
-							Nuclinas <input type="checkbox" onChange={(e) => this.ShowNuclinas(e)} checked={this.state.bShowNuclinas}></input><br/>
+							Ingrese las funciones para realizar el gráfico
+							<div className='no-lineal'>
+								<img src={Llave} width={35}></img>
+								<div className='functions'>
+									<div className='function'>
+										<div className='input_text'>f(x,y)=</div>
+										<input className='input' onChange={(e) => this.updateXDotExpression(e)}></input>
+									</div>
+									<div className='function'>
+										<div className='input_text'>g(x,y)=</div>
+										<input className='input' onChange={(e) => this.updateYDotExpression(e)}></input>
+									</div>
+								</div>
+							</div>
+							<div className='function'>
+								<div className='nuctlina'>Ver nuclinas</div>
+								<input type="checkbox" onChange={(e) => this.ShowNuclinas(e)} checked={this.state.bShowNuclinas}></input>
+							</div>
 							Puntos de equilibrio: {this.state.POE}
 						</div>
 						<div className="canvas-container">
@@ -828,11 +839,9 @@ class App extends Component {
 								onDragStart={(e) => this.onCanvasDragStart(e)} draggable={true}
 								onMouseDown={(e) => this.onCanvasMouseDown(e)}
 								onWheel={(e) => this.zoomCanvas(e)}>
-								
 							</canvas>
 						</div>
 					</div>
-				</header>
 			</div>
 		);
 	}
