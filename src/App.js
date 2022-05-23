@@ -383,12 +383,12 @@ class App extends Component {
 		
 		// Nuclina X
 		ctx.lineWidth = 2;
-		ctx.strokeStyle = "rgb(150,0,200)";
+		ctx.strokeStyle = "rgb(200,0,150)";
 		this.drawNuclinaInDirection(ctx, axes, solutions.xSolution.x, true);
 		this.drawNuclinaInDirection(ctx, axes, solutions.xSolution.y, false);
 		
 		// Nuclina Y
-		ctx.strokeStyle = "rgb(200,0,150)";
+		ctx.strokeStyle = "rgb(150,0,200)";
 		this.drawNuclinaInDirection(ctx, axes, solutions.ySolution.x, true);
 		this.drawNuclinaInDirection(ctx, axes, solutions.ySolution.y, false);
 
