@@ -812,6 +812,19 @@ class App extends Component {
 			console.warn("not autovalue found?");
 		}
 
+		autoValues[0] = this.AproximateComplex(this.math.evaluate(autoValues[0].toString()));
+		autoValues[1] = this.AproximateComplex(this.math.evaluate(autoValues[1].toString()));
+
+		const subspaceMatrix1 = [
+			[linealizedMatrix[0][0] - autoValues[0], linealizedMatrix[0][1]],
+			[linealizedMatrix[1][0], linealizedMatrix[1][1] - autoValues[0]]
+		];
+		const subspaceMatrix2 = [
+			[linealizedMatrix[0][0] - autoValues[1], linealizedMatrix[0][1]],
+			[linealizedMatrix[1][0], linealizedMatrix[1][1] - autoValues[1]]
+		];
+		
+
 		const xdotexpression = linealizedMatrix[0][0] + "*x + " + linealizedMatrix[0][1] + "*y";
 		const ydotexpression = linealizedMatrix[1][0] + "*x + " + linealizedMatrix[1][1] + "*y";
 
