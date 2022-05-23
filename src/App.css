@@ -1,3 +1,7 @@
+html, body, #root {
+	height: 100%;
+}
+
 .App {
 	text-align: center;
 	height: 100%;
@@ -13,7 +17,6 @@
 		animation: App-logo-spin infinite 20s linear;
 	}
 }
-
 
 .App-link {
 	color: #61dafb;
@@ -39,8 +42,8 @@
 }
 
 .main-canvas {
-	width: 700px;
-	height: 700px;
+	width: 800px;
+	height: 800px;
 	border: 2px solid #282c34;
 	background-color: white;
 }
@@ -61,10 +64,6 @@
 	align-items: center;
 }
 
-.llaves_funciones{
-
-}
-
 .functions{
 	display: flex;
 	flex-direction: column;
@@ -83,10 +82,29 @@
 }
 
 .input{
+	margin-top: 5px;
 	flex: 2;
+	height: 25px;
+	font-size: large;
 }
 
 .inputs {
 	width: 400px;
+	background-color: #23262e;
+	padding: 20px 0;
+	margin-left: 20px;
 	align-self: center;
+	border-radius: 20px;
+	border: 2px dashed white;
+}
+
+.checkbox {
+	margin-top: 10px;
+	margin-left: 10px;
+	height: 25px;
+	width: 25px;
+}
+
+.poe-selected {
+	background-color: #3e4450;
 }

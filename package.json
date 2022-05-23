@@ -8,7 +8,7 @@
     "@testing-library/user-event": "^13.5.0",
     "math-expression-evaluator": "^1.3.14",
     "mathjs": "^10.5.3",
-    "nerdamer": "^1.1.13",
+    "nerdamer": "github:Matt0017/nerdamer",
     "react": "^18.1.0",
     "react-dom": "^18.1.0",
     "react-scripts": "5.0.1",

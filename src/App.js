@@ -1,12 +1,13 @@
 import './App.css';
 import React, { Component } from 'react';
-import { acos, all, create, dot, evaluate, norm, pi, pow, sqrt } from 'mathjs'
+import { acos, all, create, dot, evaluate, index, norm, pi, pow, round, sqrt } from 'mathjs'
 import 'math-expression-evaluator'
-import 'nerdamer'
-import nerdamer from 'nerdamer/all';
+import nerdamer from "nerdamer/all.js"
 import Llave from './soporte-abierto.png'
 
 class App extends Component {
+
+	incrementalDivision = 3;
 
 //#region Variables
 	offset = {
@@ -40,12 +41,18 @@ class App extends Component {
 	};
 
 	bShowNuclinas = true;
+	bShowEjes = true;
 
 	axes = { };
 
 	/** Points of interest to draw lines from. in numeric coordinates */
 	POIs = [];
 	POE = [];
+	POEInfo = [];
+
+	Jacobian;
+
+	selectedIndex = -1;
 
 //#endregion
 
@@ -57,7 +64,9 @@ class App extends Component {
 
 		this.state = {
 			bShowNuclinas: true,
-			POE: ""
+			bShowEjes: true,
+			POE: [],
+			selectedIndex: -1
 		}
 
 		let config = {
@@ -100,22 +109,53 @@ class App extends Component {
 		axes.y0 = this.offset.y + .5 + .5 * canvas.height;	// y0 pixels from top to y=0
 		axes.scale = this.scale;							// 40 pixels from x=0 to x=1
 
-		this.drawAxes(ctx, axes);
+		let expressions = {
+			xdotexpression: this.xdotexpression,
+			ydotexpression: this.ydotexpression
+		}
 
-		this.drawFlowLines(ctx, axes);
+		let solutions = {
+			xSolution: this.xSolution,
+			ySolution: this.ySolution
+		}
+
+		if (this.selectedIndex != -1)
+		{
+			this.generatePOEInfo(this.selectedIndex);
+
+			expressions.xdotexpression = this.POEInfo[this.selectedIndex].xdotexpression;
+			expressions.ydotexpression = this.POEInfo[this.selectedIndex].ydotexpression;
+
+			solutions.xSolution = this.POEInfo[this.selectedIndex].xSolution;
+			solutions.ySolution = this.POEInfo[this.selectedIndex].ySolution;
+		}
+
+		if (this.bShowEjes)
+		{
+			this.drawAxes(ctx, axes);
+		}
+
+		this.drawFlowLines(ctx, axes, expressions);
 
 		if (this.bShowNuclinas)
 		{
-			this.drawNuclinas(ctx, axes);
+			this.drawNuclinas(ctx, axes, expressions, solutions);
 		}
 
 		for (let i = 0; i < this.POIs.length; ++i)
 		{
 			const POI = this.POIs[i];
-			this.drawFullFlow(ctx, axes, POI);
+			this.drawFullFlow(ctx, axes, POI, expressions);
 		}
 
-		this.DrawPOE(ctx, axes);
+		if (this.selectedIndex == -1)
+		{
+			this.DrawPOE(ctx, axes, this.POE);
+		}
+		else
+		{
+			this.DrawPOE(ctx, axes, [{ x: 0, y: 0}]);
+		}
 	}
 
 	drawAxes(ctx, axes)
@@ -158,7 +198,7 @@ class App extends Component {
 		ctx.lineWidth = 1;
 	}
 	
-	drawFlowLines(ctx, axes)
+	drawFlowLines(ctx, axes, expressions)
 	{
 		const flowlineCount = 20;
 		const flowlineSteps = 20;
@@ -166,7 +206,7 @@ class App extends Component {
 		const spaceInBetweenX = ctx.canvas.width / (flowlineCount - 3);
 		const spaceInBetweenY = ctx.canvas.height / (flowlineCount - 3);
 
-		if (this.xdotexpression !=="" && this.ydotexpression !=="")
+		if (expressions.xdotexpression !=="" && expressions.ydotexpression !=="")
 		{
 			ctx.beginPath();
 			ctx.strokeStyle = "rgb(50,100,178)"; 
@@ -181,30 +221,38 @@ class App extends Component {
 
 					let point = this.pixelCoordsToPoint(axes, xPos, yPos);
 
-					this.drawFlowLine(ctx, axes, point, { flowlineSteps: flowlineSteps })
+					this.drawFlowLine(ctx, axes, point, { flowlineSteps: flowlineSteps }, expressions)
 				}
 			}
 			ctx.stroke();
 		}
 	}
 
-	drawFullFlow(ctx, axes, POI)
+	drawFullFlow(ctx, axes, POI, expressions)
 	{
 		ctx.beginPath();
 		ctx.strokeStyle = "rgb(0,0,0)";
 		ctx.lineWidth = 2;
-		this.drawFlowLine(ctx, axes, POI, { checkOOB: true, flowlineStepLength: 5 });
+		this.drawFlowLine(ctx, axes, POI, { checkOOB: true, flowlineStepLength: 5 }, expressions);
+		this.drawFlowLine(ctx, axes, POI, { checkOOB: true, flowlineStepLength: 5, inverted: true }, expressions);
 		ctx.stroke();
 		ctx.lineWidth = 1;
 	}
 
-	drawFlowLine(ctx, axes, point, params)
+	drawFlowLine(ctx, axes, point, params, expressions)
 	{
 		point = Object.assign({}, point);
 
+		let fullFlow = false;
+
 		if (!params.flowlineSteps)
 		{
-			params.flowlineSteps = 1000;
+			params.flowlineSteps = 500;
+			fullFlow = true;
+		}
+		if (!params.inverted)
+		{
+			params.inverted = false;
 		}
 		if (!params.flowlineStepLength)
 		{
@@ -234,11 +282,19 @@ class App extends Component {
 
 		let pDir, pPoint, ppPoint, screenPos = null;
 		let flowlineStepLengthMod = 1, slowdownCounter = 0;
-		let skipNextLine = false;
+		let skipNextLine = false, initialPointDrawn = false;
 
 		for (let step = 0; step < params.flowlineSteps; step++)
 		{
-			let dir = this.evaluateExpressions(point);
+			let dir = this.evaluateExpressions(expressions.xdotexpression, expressions.ydotexpression, point);
+
+			if (params.inverted)
+			{
+				dir = {
+					x: -dir.x,
+					y: -dir.y
+				}
+			}
 
 			if (pDir)
 			{
@@ -287,6 +343,13 @@ class App extends Component {
 				ctx.lineTo(screenPos.x, screenPos.y);
 			}
 			
+			if (!initialPointDrawn)
+			{
+				screenPos = this.pointToPixel(axes, point);
+				ctx.moveTo(screenPos.x, screenPos.y);
+				initialPointDrawn = true;
+			}
+
 			point.x += this.smoothenDirection(dir.x) * flowlineStepLength * flowlineStepLengthMod;
 			point.y += this.smoothenDirection(dir.y) * flowlineStepLength * flowlineStepLengthMod;
 
@@ -296,7 +359,7 @@ class App extends Component {
 			// we draw the line at the very beginning of the next iteration to avoid going over
 
 			// draw arrow tip
-			if (step === params.flowlineSteps-1)
+			if (step === params.flowlineSteps-1 && !params.inverted && !fullFlow)
 			{
 				this.drawTip(ctx, this.pointToPixel(axes, pPoint), screenPos, { tipLength: 10 });
 			}
@@ -311,27 +374,29 @@ class App extends Component {
 		}
 	}
 
-	drawNuclinas(ctx, axes)
+	drawNuclinas(ctx, axes, expressions, solutions)
 	{
-		if (this.xdotexpression === "" || this.ydotexpression === "")
+		if (expressions.xdotexpression === "" || expressions.ydotexpression === "")
 		{
 			return;
 		}
 		
 		// Nuclina X
-		ctx.strokeStyle = "rgb(200,0,200)";
-		this.drawNuclinaInDirection(ctx, axes, this.xSolution.x, true);
-		this.drawNuclinaInDirection(ctx, axes, this.xSolution.y, false);
+		ctx.lineWidth = 2;
+		ctx.strokeStyle = "rgb(150,0,200)";
+		this.drawNuclinaInDirection(ctx, axes, solutions.xSolution.x, true);
+		this.drawNuclinaInDirection(ctx, axes, solutions.xSolution.y, false);
 		
 		// Nuclina Y
-		ctx.strokeStyle = "rgb(120,0,120)";
-		this.drawNuclinaInDirection(ctx, axes, this.ySolution.x, true);
-		this.drawNuclinaInDirection(ctx, axes, this.ySolution.y, false, this.ydotexpression);
+		ctx.strokeStyle = "rgb(200,0,150)";
+		this.drawNuclinaInDirection(ctx, axes, solutions.ySolution.x, true);
+		this.drawNuclinaInDirection(ctx, axes, solutions.ySolution.y, false);
 
 		ctx.stroke();
+		ctx.lineWidth = 1;
 	}
 
-	drawNuclinaInDirection(ctx, axes, solutions, xDirection, altExpression)
+	drawNuclinaInDirection(ctx, axes, solutions, xDirection)
 	{
 		const increment = 5;
 
@@ -349,7 +414,7 @@ class App extends Component {
 		while (current <= limit + increment)
 		{
 			const currentPoint = xDirection ? this.YToPoint(axes, current) : this.XToPoint(axes, current); 
-
+			
 			for (let sI = 0; sI < solutions.length; sI++)
 			{
 				let scope = {};
@@ -376,7 +441,9 @@ class App extends Component {
 				let valuePixel =  xDirection ? this.XToPixel(axes, value) : this.YToPixel(axes, value);
 
 				const distance = Math.max(Math.abs(pCurrent - current), Math.abs(pSolutions[sI] - valuePixel));
-				if (pCurrent !== null && distance < increment*3)
+				const maxDistance = increment * this.incrementalDivision * Math.min(Math.max(1, this.math.abs(value*value/4)), limit/4);
+
+				if (pCurrent !== null && distance < maxDistance)
 				{
 					if (xDirection)
 					{
@@ -400,13 +467,13 @@ class App extends Component {
 		ctx.stroke();
 	}
 
-	DrawPOE(ctx, axes)
+	DrawPOE(ctx, axes, poeList)
 	{
 		const radius = 5;
 
-		for (let i = 0; i < this.POE.length; i++)
+		for (let i = 0; i < poeList.length; i++)
 		{
-			const POE = this.POE[i];
+			const POE = poeList[i];
 			const pixelPOE = this.pointToPixel(axes, POE);
 			
 			ctx.fillStyle = "#00D0D0";
@@ -437,11 +504,11 @@ class App extends Component {
 		return NaN;
 	}
 
-	evaluateExpressions(point)
+	evaluateExpressions(xExpression, yExpression, point)
 	{
 		try {
-			var x = evaluate(this.xdotexpression, {x: point.x, y: point.y});
-			var y = evaluate(this.ydotexpression, {x: point.x, y: point.y});
+			var x = evaluate(xExpression, {x: point.x, y: point.y});
+			var y = evaluate(yExpression, {x: point.x, y: point.y});
 			return { x: x, y: y};
 		}
 		catch
@@ -499,12 +566,20 @@ class App extends Component {
 		}
 		
 		this.POE = [];
+		this.POEInfo = [];
 		
+		this.selectedIndex = -1;
+		this.setState({
+			selectedIndex: -1
+		});
+
 		{
 			const includesX = expression.indexOf('x') !==-1;
 			const includesY = expression.indexOf('y') !==-1;
 
 			let totalFound = [];
+
+			let exit = false;
 
 			//TODO cuidado con el caso en que f(x) = g(x), van a tirar las raices junto con y = 0
 			// Both have x
@@ -513,6 +588,7 @@ class App extends Component {
 				const foundPOEs1 = this.DeterminePOE_Internal(expression, expression2, solutionFor2, true);
 				const foundPOEs2 = this.DeterminePOE_Internal(expression2, expression, solutionFor1, true);
 				totalFound = foundPOEs1.concat(foundPOEs2);
+				exit = true;
 			}
 
 			// Both have y
@@ -520,20 +596,27 @@ class App extends Component {
 			{
 				const foundPOEs1 = this.DeterminePOE_Internal(expression, expression2, solutionFor2, false);
 				const foundPOEs2 = this.DeterminePOE_Internal(expression2, expression, solutionFor1, false);
-				totalFound.push(foundPOEs1.concat(foundPOEs2));
+				totalFound = totalFound.concat(foundPOEs1).concat(foundPOEs2);
+				exit = true;
 			}
 
-			console.log(totalFound);
 			for (let i = 0; i < totalFound.length; i++)
 			{
 				const poe = totalFound[i];
-				if (!this.POE.includes((p) => this.IsNear(p.x, poe.x) && this.IsNear(p.y, poe.y)))
+				if (this.POE.findIndex((p) => this.IsNear(p.x, poe.x) && this.IsNear(p.y, poe.y)) == -1)
 				{
 					this.POE.push(poe);
 				}
 			}
 
 			if (this.POE.length > 0)
+			{
+				this.POEInfo.length = this.POE.length;
+				this.setState({
+					POE: this.POE
+				})
+			}
+			if (exit)
 			{
 				return;
 			}
@@ -574,7 +657,17 @@ class App extends Component {
 					}
 				}
 			}
+
+			if (this.POE.length > 0)
+			{
+				this.POEInfo.length = this.POE.length;
+				this.setState({
+					POE: this.POE
+				})
+				return;
+			}
 		}
+
 
 		//TODO uno puede ser 0 directamente
 
@@ -602,7 +695,7 @@ class App extends Component {
 				solveVarSolutions = nExpression.sub(subVar, solution).evaluate().solveFor(solveVar);
 			} catch (e)
 			{
-				console.log(e);
+				console.error(e);
 				continue;
 			}
 			
@@ -615,7 +708,7 @@ class App extends Component {
 					continue;
 				}
 				// super ineficiente pero bueno
-				if (!solveValues.includes((s) => s.toString() === solveS.toString()))
+				if (solveValues.findIndex((s) => s.toString() === solveS.toString()) == -1)
 				{
 					solveValues.push(solveS);
 				}
@@ -640,7 +733,7 @@ class App extends Component {
 						x: subX ? subNum : solveNum,
 						y: subX ? solveNum : subNum
 					}
-					if (!pairs.includes((p) => this.IsNear(p.x, subX ? subNum : solveNum) && this.IsNear(p.y, subX ? solveNum : subNum)))
+					if (pairs.findIndex((p) => this.IsNear(p.x, subX ? subNum : solveNum) && this.IsNear(p.y, subX ? solveNum : subNum)) == -1)
 					{
 						pairs.push(pair);
 					}
@@ -660,6 +753,106 @@ class App extends Component {
 			}
 		}
 		return foundPOEs;
+	}
+
+	generatePOEInfo(index)
+	{
+		if (this.POEInfo.length <= index)
+		{
+			console.warn("Invalid index for POE");
+			return;
+		}
+
+		console.log(this.POEInfo[index])
+		if (this.POEInfo[index] == undefined)
+		{
+			this.generatePOEInfo_Internal(index);
+		}
+	}
+
+	generatePOEInfo_Internal(index)
+	{
+		if (this.Jacobian == undefined)
+		{
+			console.warn("Unset Jacobian");
+			return;
+		}
+
+		const poe = this.POE[index];
+
+		const travelToPoint = (exp) => {
+			return this.AproximateComplex(this.math.evaluate(exp.sub('x', poe.x).sub('y', poe.y).toString()));
+		}
+
+		const linealizedMatrix = [
+			[
+				travelToPoint(this.Jacobian[0][0]),
+				travelToPoint(this.Jacobian[0][1])
+			],
+			[
+				travelToPoint(this.Jacobian[1][0]),
+				travelToPoint(this.Jacobian[1][1])
+			]
+		];
+
+		const p = linealizedMatrix[0][0] + linealizedMatrix[1][1], q = (linealizedMatrix[0][0]*linealizedMatrix[1][1])-(linealizedMatrix[0][1]*linealizedMatrix[1][0]);
+
+		const characteristicEqn = nerdamer("x^2 -" + p + "*x +" + q);
+
+		const autoValues = characteristicEqn.solveFor('x');
+		let autoValuesAreEqual = false;
+
+		if (autoValues.length == 1)
+		{
+			autoValues.push(autoValues[0]);
+			autoValuesAreEqual = true;
+		}
+		else if (autoValues.length == 0)
+		{
+			console.warn("not autovalue found?");
+		}
+
+		const xdotexpression = linealizedMatrix[0][0] + "*x + " + linealizedMatrix[0][1] + "*y";
+		const ydotexpression = linealizedMatrix[1][0] + "*x + " + linealizedMatrix[1][1] + "*y";
+
+		let xSolution = {
+			x: [],
+			y: []
+		}, ySolution = {
+			x: [],
+			y: []
+		};
+		this.prepareSolutionFromExpression(xdotexpression, xSolution);
+		this.prepareSolutionFromExpression(ydotexpression, ySolution);
+
+		this.POEInfo[index] = 
+		{
+			linealizedMatrix: linealizedMatrix,
+			xdotexpression: xdotexpression,
+			ydotexpression: ydotexpression,
+			xSolution: xSolution,
+			ySolution: ySolution,
+			autoValuesAreEqual: autoValuesAreEqual,
+			autoValues: autoValues
+		}
+
+		console.log(this.POEInfo[index]);
+	}
+
+	UpdateJacobian()
+	{
+		const F = nerdamer(this.xdotexpression);
+		const G = nerdamer(this.ydotexpression);
+
+		const FdX = nerdamer.diff(F, 'x');
+		const FdY = nerdamer.diff(F, 'y');
+		const GdX = nerdamer.diff(G, 'x');
+		const GdY = nerdamer.diff(G, 'y');
+
+		this.Jacobian = [
+			[FdX, FdY],
+			[GdX, GdY]
+		];
 	}
 
 	IsNear(a, b)
@@ -701,19 +894,23 @@ class App extends Component {
 		this.xdotexpression = event.target.value.toLocaleLowerCase();
 		this.prepareSolutionFromExpression(this.xdotexpression, this.xSolution);
 
-		this.DeterminePOE(this.xdotexpression, this.xSolution, this.ydotexpression, this.ySolution);
-		this.POIs = [];
-
-		this.Draw();
+		this.onExpressionUpdated();
 	}
 
 	updateYDotExpression(event)
 	{
 		this.ydotexpression = event.target.value.toLocaleLowerCase();
 		this.prepareSolutionFromExpression(this.ydotexpression, this.ySolution);
-		
-		this.DeterminePOE(this.ydotexpression, this.ySolution, this.xdotexpression, this.xSolution);
+
+		this.onExpressionUpdated();
+	}
+
+	onExpressionUpdated()
+	{
+		this.DeterminePOE(this.xdotexpression, this.xSolution, this.ydotexpression, this.ySolution);
 		this.POIs = [];
+		
+		this.UpdateJacobian();
 
 		this.Draw();
 	}
@@ -722,6 +919,13 @@ class App extends Component {
 	{
 		this.bShowNuclinas = event.target.checked;
 		this.setState( { bShowNuclinas: this.bShowNuclinas });
+		this.Draw();
+	}
+
+	ShowEjes(event)
+	{
+		this.bShowEjes = event.target.checked;
+		this.setState( { bShowEjes: this.bShowEjes });
 		this.Draw();
 	}
 
@@ -802,6 +1006,24 @@ class App extends Component {
 			this.Draw();
 		}
 	}
+
+	SelectPOE(index)
+	{
+		let newIndex = index;
+		if (index == this.selectedIndex)
+		{
+			newIndex = -1;
+		}
+
+		this.selectedIndex = newIndex;
+		this.setState({
+			selectedIndex: newIndex
+		});
+
+		this.POIs = [];
+
+		this.Draw();
+	}
 //#endregion
 
 	render()
@@ -811,37 +1033,57 @@ class App extends Component {
 				onMouseMove={(e) => this.onAppDrag(e)}
 				onMouseUp={(e) => this.onAppMouseUp(e)}
 			>
-				
-					<div className='container'>
-						<div className='inputs'>
-							Ingrese las funciones para realizar el gráfico
-							<div className='no-lineal'>
-								<img src={Llave} width={35}></img>
-								<div className='functions'>
-									<div className='function'>
-										<div className='input_text'>f(x,y)=</div>
-										<input className='input' onChange={(e) => this.updateXDotExpression(e)}></input>
-									</div>
-									<div className='function'>
-										<div className='input_text'>g(x,y)=</div>
-										<input className='input' onChange={(e) => this.updateYDotExpression(e)}></input>
-									</div>
+				<div className='container'>
+					<div className='inputs'>
+						Ingrese las funciones para realizar el gráfico
+						<div className='no-lineal'>
+							<img src={Llave} width={35}></img>
+							<div className='functions'>
+								<div className='function'>
+									<div className='input_text'>f(x,y)=</div>
+									<input className='input' onChange={(e) => this.updateXDotExpression(e)}></input>
+								</div>
+								<div className='function'>
+									<div className='input_text'>g(x,y)=</div>
+									<input className='input' onChange={(e) => this.updateYDotExpression(e)}></input>
 								</div>
 							</div>
-							<div className='function'>
-								<div className='nuctlina'>Ver nuclinas</div>
-								<input type="checkbox" onChange={(e) => this.ShowNuclinas(e)} checked={this.state.bShowNuclinas}></input>
-							</div>
-							Puntos de equilibrio: {this.state.POE}
 						</div>
-						<div className="canvas-container">
-							<canvas ref={this.canvas} className="main-canvas"
-								onDragStart={(e) => this.onCanvasDragStart(e)} draggable={true}
-								onMouseDown={(e) => this.onCanvasMouseDown(e)}
-								onWheel={(e) => this.zoomCanvas(e)}>
-							</canvas>
+						<div className='function'>
+							<div className='nuctlina'>Ejes </div>
+							<input type="checkbox" className='checkbox' onChange={(e) => this.ShowEjes(e)} checked={this.state.bShowEjes}></input>
+							
+						</div>
+						<div className='function'>
+							<div className='nuctlina'>Nuclinas </div>
+							<input type="checkbox" className='checkbox' onChange={(e) => this.ShowNuclinas(e)} checked={this.state.bShowNuclinas}></input>
+						</div>
+						Puntos de equilibrio: 
+						<div>
+							{
+								this.state.POE.map(
+									(POE, index) =>
+									{
+										const selected = this.state.selectedIndex == index;
+										const _class = selected ? "poe-selected" : "poe"
+										return (
+											<div className={_class} onClick={(e) => this.SelectPOE(index)}>
+												(x: {round(POE.x, 2)}; y: {round(POE.y, 2)})
+											</div>
+										)
+									}
+								)
+							}
 						</div>
 					</div>
+					<div className="canvas-container">
+						<canvas ref={this.canvas} className="main-canvas"
+							onDragStart={(e) => this.onCanvasDragStart(e)} draggable={true}
+							onMouseDown={(e) => this.onCanvasMouseDown(e)}
+							onWheel={(e) => this.zoomCanvas(e)}>
+						</canvas>
+					</div>
+				</div>
 			</div>
 		);
 	}
