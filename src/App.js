@@ -119,6 +119,8 @@ class App extends Component {
 			ySolution: this.ySolution
 		}
 
+		// let POEList = this.POE;
+
 		if (this.selectedIndex != -1)
 		{
 			this.generatePOEInfo(this.selectedIndex);
@@ -128,6 +130,8 @@ class App extends Component {
 
 			solutions.xSolution = this.POEInfo[this.selectedIndex].xSolution;
 			solutions.ySolution = this.POEInfo[this.selectedIndex].ySolution;
+
+			// POEList = [ this.POE[this.selectedIndex] ];
 		}
 
 		if (this.bShowEjes)
@@ -150,11 +154,11 @@ class App extends Component {
 
 		if (this.selectedIndex == -1)
 		{
-			this.DrawPOE(ctx, axes, this.POE);
+			this.DrawPOE(ctx, axes, this.POE, this.POEInfo, { autoVectorLength: 0.25 });
 		}
 		else
 		{
-			this.DrawPOE(ctx, axes, [{ x: 0, y: 0}]);
+			this.DrawPOE(ctx, axes, [{ x: 0, y: 0}], [ this.POEInfo[this.selectedIndex] ], { autoVectorLength: 0.25 });
 		}
 	}
 
@@ -233,8 +237,8 @@ class App extends Component {
 		ctx.beginPath();
 		ctx.strokeStyle = "rgb(0,0,0)";
 		ctx.lineWidth = 2;
-		this.drawFlowLine(ctx, axes, POI, { checkOOB: true, flowlineStepLength: 5 }, expressions);
-		this.drawFlowLine(ctx, axes, POI, { checkOOB: true, flowlineStepLength: 5, inverted: true }, expressions);
+		this.drawFlowLine(ctx, axes, POI, { checkOOB: true, flowlineStepLength: 20  }, expressions);
+		this.drawFlowLine(ctx, axes, POI, { checkOOB: true, flowlineStepLength: 20, inverted: true }, expressions);
 		ctx.stroke();
 		ctx.lineWidth = 1;
 	}
@@ -263,7 +267,7 @@ class App extends Component {
 			params.checkOOB = false;
 		}
 
-		const flowlineStepLength = params.flowlineStepLength / this.scale;
+		const flowlineStepLength = params.flowlineStepLength / (this.math.pow(this.scale / 60, 10/12) * 300);
 		const slowdownLimit = 5;
 		const oobLimit = 20;
 
@@ -316,8 +320,8 @@ class App extends Component {
 						{
 							break;
 						}
-						point.x -= this.smoothenDirection(pDir.x) * flowlineStepLength * flowlineStepLengthMod;
-						point.y -= this.smoothenDirection(pDir.y) * flowlineStepLength * flowlineStepLengthMod;
+						point.x -= pDir.x * flowlineStepLength * flowlineStepLengthMod;
+						point.y -= pDir.y * flowlineStepLength * flowlineStepLengthMod;
 
 						pPoint = ppPoint;
 
@@ -350,8 +354,8 @@ class App extends Component {
 				initialPointDrawn = true;
 			}
 
-			point.x += this.smoothenDirection(dir.x) * flowlineStepLength * flowlineStepLengthMod;
-			point.y += this.smoothenDirection(dir.y) * flowlineStepLength * flowlineStepLengthMod;
+			point.x += dir.x * flowlineStepLength * flowlineStepLengthMod;
+			point.y += dir.y * flowlineStepLength * flowlineStepLengthMod;
 
 			screenPos = this.pointToPixel(axes, point);
 
@@ -467,21 +471,136 @@ class App extends Component {
 		ctx.stroke();
 	}
 
-	DrawPOE(ctx, axes, poeList)
+	DrawPOE(ctx, axes, poeList, poeInfoList, params)
 	{
-		const radius = 5;
+		const radius = 6;
+
+		const ignoreInfo = poeList.length != poeInfoList.length;
+		if (ignoreInfo)
+		{
+			console.warn("Ignoring POE Info as it doesn't match 1 to 1 with the POE list");
+		}
 
 		for (let i = 0; i < poeList.length; i++)
 		{
 			const POE = poeList[i];
+			const POEInfo = poeInfoList[i];
 			const pixelPOE = this.pointToPixel(axes, POE);
-			
-			ctx.fillStyle = "#00D0D0";
+
+			if (!ignoreInfo)
+			{
+				this.DrawPOEAutoVectors(ctx, axes, POE, POEInfo, params);
+			}
+
 			ctx.beginPath();
+			ctx.fillStyle = "#00D0D0";
+			ctx.strokeStyle = "rgb(0,0,0)";
 			ctx.arc(pixelPOE.x, pixelPOE.y, radius, 0, 2 * this.math.pi);
 			ctx.fill();
+			ctx.stroke();
 		}
 	}
+
+	DrawPOEAutoVectors(ctx, axes, poe, info, params)
+	{
+		const parabola = info.p * info.p / 4;
+
+		console.log(info.p);
+		console.log(info.q);
+		console.log(parabola);
+
+		if (info.q < 0 || ( info.q < parabola && info.q > 0))
+		{
+			this.DrawPOEAutoVectors_Internal(ctx, axes, poe, info.autoVectors[0], info.autoValues[0], params);
+			this.DrawPOEAutoVectors_Internal(ctx, axes, poe, info.autoVectors[1], info.autoValues[1], params);
+		}
+		else if (info.p != 0 && info.q == 0)
+		{
+			const params2 = Object.assign({}, params);
+			params2.defaultColor = info.p > 0 ? "rgb(250,0,0)" : "rgb(0,120,180)"; 
+			if (info.p > 0) // autovalue1 == 0
+			{
+				this.DrawPOEAutoVectors_Internal(ctx, axes, poe, info.autoVectors[0], info.autoValues[0], params2);
+				this.DrawPOEAutoVectors_Internal(ctx, axes, poe, info.autoVectors[1], info.autoValues[1], params);	
+			}
+			else // autovalue2 == 0
+			{
+				this.DrawPOEAutoVectors_Internal(ctx, axes, poe, info.autoVectors[0], info.autoValues[0], params);
+				this.DrawPOEAutoVectors_Internal(ctx, axes, poe, info.autoVectors[1], info.autoValues[1], params2);	
+			}
+		}
+		else if (info.p == 0 && info.q == 0)
+		{
+			const params2 = Object.assign({}, params);
+			params2.defaultColor = "rgb(250,0,0)"; 
+			this.DrawPOEAutoVectors_Internal(ctx, axes, poe, info.autoVectors[0], info.autoValues[0], params2);
+		}
+		else if (info.q == parabola)
+		{
+			this.DrawPOEAutoVectors_Internal(ctx, axes, poe, info.autoVectors[0], info.autoValues[0], params);
+		}
+		else
+		{
+			console.warn("Unhandled (p;q) situation");
+		}
+	}
+
+	DrawPOEAutoVectors_Internal(ctx, axes, poe, vector, value, params)
+	{
+		ctx.beginPath();
+		ctx.lineWidth = axes.scale > 500 ? 2 : 1;
+
+		if (!params) { params = {} };
+
+		const useParamLength = params.autoVectorLength != undefined;
+		
+		const closeToPixelPOE = (mult) => {
+			const a = mult * 6/axes.scale;
+			return this.pointToPixel(axes, { x: poe.x + vector[0] * a, y: poe.y + vector[1] * a });
+		}
+
+		if (useParamLength)
+		{
+			const beginPoint = this.pointToPixel(axes, {
+				x: poe.x + vector[0] * params.autoVectorLength,
+				y: poe.y + vector[1] * params.autoVectorLength
+			});
+			const endPoint = this.pointToPixel(axes, {
+				x: poe.x - vector[0] * params.autoVectorLength,
+				y: poe.y - vector[1] * params.autoVectorLength
+			});
+
+			if (value > 0)
+			{
+				ctx.strokeStyle = "rgb(250,0,0)";
+				this.drawTip(ctx, beginPoint, endPoint, { tipLength: 10 });
+				this.drawTip(ctx, endPoint, beginPoint, { tipLength: 10 });
+			}
+			else if (value < 0)
+			{
+				ctx.strokeStyle = "rgb(0,120,180)";
+				this.drawTip(ctx, beginPoint, closeToPixelPOE(1), { tipLength: 10 });
+				this.drawTip(ctx, endPoint, closeToPixelPOE(-1), { tipLength: 10 });
+			}
+			else if (params.defaultColor != undefined)
+			{
+				ctx.strokeStyle = params.defaultColor;
+				this.drawTip(ctx, beginPoint, endPoint, { tipLength: 10 }, 2);
+				this.drawTip(ctx, endPoint, beginPoint, { tipLength: 10 }, 2);
+			}
+			else
+			{
+				console.warn("Attempting to draw autovector for autovalue = 0")
+			}
+
+			 ctx.moveTo(beginPoint.x, beginPoint.y);
+			 ctx.lineTo(endPoint.x, endPoint.y);
+		}
+		
+		ctx.stroke();
+		ctx.lineWidth = 1;
+	}
+
 //#endregion
 
 //#region Utilities
@@ -541,19 +660,17 @@ class App extends Component {
 	XToPixel(axes, x) { return x * axes.scale + axes.x0; }
 	YToPixel(axes, y) { return y * -1 * axes.scale + axes.y0; }
 
-	smoothenDirection(d) { return sqrt(Math.abs(d)) * Math.sign(d); }
-
 	/** Moves and draws an arrow tip. doesn't perform a stroke. Does not draw a line between from an to. */
-	drawTip(ctx, from, to, params) {
+	drawTip(ctx, from, to, params, open = 6) {
 		const direction = {
 			x: to.x - from.x,
 			y: to.y - from.y
 		}
 		const angle = Math.atan2(direction.y, direction.x);
 		ctx.moveTo(to.x, to.y);
-		ctx.lineTo(to.x - params.tipLength * Math.cos(angle - Math.PI / 6), to.y - params.tipLength * Math.sin(angle - Math.PI / 6));
+		ctx.lineTo(to.x - params.tipLength * Math.cos(angle - Math.PI / open), to.y - params.tipLength * Math.sin(angle - Math.PI / open));
 		ctx.moveTo(to.x, to.y);
-		ctx.lineTo(to.x - params.tipLength * Math.cos(angle + Math.PI / 6), to.y - params.tipLength * Math.sin(angle + Math.PI / 6));
+		ctx.lineTo(to.x - params.tipLength * Math.cos(angle + Math.PI / open), to.y - params.tipLength * Math.sin(angle + Math.PI / open));
 	}
 //#endregion
 
@@ -611,10 +728,7 @@ class App extends Component {
 
 			if (this.POE.length > 0)
 			{
-				this.POEInfo.length = this.POE.length;
-				this.setState({
-					POE: this.POE
-				})
+				this.onPOESet();
 			}
 			if (exit)
 			{
@@ -660,10 +774,7 @@ class App extends Component {
 
 			if (this.POE.length > 0)
 			{
-				this.POEInfo.length = this.POE.length;
-				this.setState({
-					POE: this.POE
-				})
+				this.onPOESet();
 				return;
 			}
 		}
@@ -755,6 +866,15 @@ class App extends Component {
 		return foundPOEs;
 	}
 
+	onPOESet()
+	{
+		this.POEInfo.length = this.POE.length;
+		
+		this.setState({
+			POE: this.POE
+		})
+	}
+
 	generatePOEInfo(index)
 	{
 		if (this.POEInfo.length <= index)
@@ -763,7 +883,6 @@ class App extends Component {
 			return;
 		}
 
-		console.log(this.POEInfo[index])
 		if (this.POEInfo[index] == undefined)
 		{
 			this.generatePOEInfo_Internal(index);
@@ -795,11 +914,13 @@ class App extends Component {
 			]
 		];
 
+		const homogeneo = linealizedMatrix[0][1] == 0 && linealizedMatrix[1][0] == 0;
+
 		const p = linealizedMatrix[0][0] + linealizedMatrix[1][1], q = (linealizedMatrix[0][0]*linealizedMatrix[1][1])-(linealizedMatrix[0][1]*linealizedMatrix[1][0]);
 
 		const characteristicEqn = nerdamer("x^2 -" + p + "*x +" + q);
 
-		const autoValues = characteristicEqn.solveFor('x');
+		let autoValues = homogeneo ? [ linealizedMatrix[0][0], linealizedMatrix[1][1] ] : characteristicEqn.solveFor('x');
 		let autoValuesAreEqual = false;
 
 		if (autoValues.length == 1)
@@ -811,6 +932,7 @@ class App extends Component {
 		{
 			console.warn("not autovalue found?");
 		}
+		autoValues.sort();
 
 		autoValues[0] = this.AproximateComplex(this.math.evaluate(autoValues[0].toString()));
 		autoValues[1] = this.AproximateComplex(this.math.evaluate(autoValues[1].toString()));
@@ -823,7 +945,59 @@ class App extends Component {
 			[linealizedMatrix[0][0] - autoValues[1], linealizedMatrix[0][1]],
 			[linealizedMatrix[1][0], linealizedMatrix[1][1] - autoValues[1]]
 		];
+
+		let rowIndex = -1;
+		if (subspaceMatrix1[0][0] != 0 || subspaceMatrix1[0][1] != 0)
+		{
+			rowIndex = 0;
+		}
+		else if (subspaceMatrix1[1][0] != 0 || subspaceMatrix1[1][1] != 0)
+		{
+			rowIndex = 1;
+		}
+
+		if (rowIndex != -1)
+		{
+			nerdamer.setVar('av1', 'vector(' + subspaceMatrix1[rowIndex][1] + ',' + (-subspaceMatrix1[rowIndex][0]) + ')')
+			nerdamer.setVar('av1', 'av1/(sqrt(vecget(av1,0)^2+vecget(av1,1)^2))');
+		}
 		
+		const autoVector1 = homogeneo ? [1, 0] : (rowIndex != -1 ? [
+			this.AproximateComplex(this.math.evaluate(nerdamer('vecget(av1, 0)').evaluate().toString())),
+			this.AproximateComplex(this.math.evaluate(nerdamer('vecget(av1, 1)').evaluate().toString())),
+		] : [0, 0]);
+
+		rowIndex = -1;
+		if (subspaceMatrix2[0][0] != 0 || subspaceMatrix2[0][1] != 0)
+		{
+			rowIndex = 0;
+		}
+		else if (subspaceMatrix2[1][0] != 0 || subspaceMatrix2[1][1] != 0)
+		{
+			rowIndex = 1;
+		}
+
+		if (rowIndex != -1)
+		{
+			nerdamer.setVar('av2', 'vector(' + subspaceMatrix2[rowIndex][1] + ',' + (-subspaceMatrix2[rowIndex][0]) + ')')
+			nerdamer.setVar('av2', 'av2/(sqrt(vecget(av2,0)^2+vecget(av2,1)^2))');		
+		}
+		const autoVector2 = homogeneo ? [0, 1] : (rowIndex != -1 ? [
+			this.AproximateComplex(this.math.evaluate(nerdamer('vecget(av2, 0)').evaluate().toString())),
+			this.AproximateComplex(this.math.evaluate(nerdamer('vecget(av2, 1)').evaluate().toString())),
+		] : [0, 0]);
+		
+		nerdamer.setVar('av1', 'delete');
+		nerdamer.setVar('av2', 'delete');
+
+		//autoVector verification
+		const v1Verif = (subspaceMatrix1[1][0] * autoVector1[0] + subspaceMatrix1[1][1] * autoVector1[1]);
+		const v2Verif = (subspaceMatrix2[1][0] * autoVector2[0] + subspaceMatrix2[1][1] * autoVector2[1]);
+
+		if (!this.IsNear(v1Verif, 0) || !this.IsNear(v2Verif, 0))
+		{
+			console.warn("incorrec autovector calculation");
+		}
 
 		const xdotexpression = linealizedMatrix[0][0] + "*x + " + linealizedMatrix[0][1] + "*y";
 		const ydotexpression = linealizedMatrix[1][0] + "*x + " + linealizedMatrix[1][1] + "*y";
@@ -841,15 +1015,16 @@ class App extends Component {
 		this.POEInfo[index] = 
 		{
 			linealizedMatrix: linealizedMatrix,
+			p: p,
+			q: q,
 			xdotexpression: xdotexpression,
 			ydotexpression: ydotexpression,
 			xSolution: xSolution,
 			ySolution: ySolution,
 			autoValuesAreEqual: autoValuesAreEqual,
-			autoValues: autoValues
+			autoValues: autoValues,
+			autoVectors: [autoVector1, autoVector2]
 		}
-
-		console.log(this.POEInfo[index]);
 	}
 
 	UpdateJacobian()
@@ -861,7 +1036,7 @@ class App extends Component {
 		const FdY = nerdamer.diff(F, 'y');
 		const GdX = nerdamer.diff(G, 'x');
 		const GdY = nerdamer.diff(G, 'y');
-
+		
 		this.Jacobian = [
 			[FdX, FdY],
 			[GdX, GdY]
@@ -905,6 +1080,17 @@ class App extends Component {
 	updateXDotExpression(event)
 	{
 		this.xdotexpression = event.target.value.toLocaleLowerCase();
+
+		try {
+			nerdamer(this.xdotexpression);
+		}
+		catch (error) {
+			if (error.name = 'ParseError')
+			{
+				return;
+			}
+		}
+
 		this.prepareSolutionFromExpression(this.xdotexpression, this.xSolution);
 
 		this.onExpressionUpdated();
@@ -913,6 +1099,17 @@ class App extends Component {
 	updateYDotExpression(event)
 	{
 		this.ydotexpression = event.target.value.toLocaleLowerCase();
+
+		try {
+			nerdamer(this.ydotexpression);
+		}
+		catch (error) {
+			if (error.name = 'ParseError')
+			{
+				return;
+			}
+		}
+
 		this.prepareSolutionFromExpression(this.ydotexpression, this.ySolution);
 
 		this.onExpressionUpdated();
@@ -924,6 +1121,10 @@ class App extends Component {
 		this.POIs = [];
 		
 		this.UpdateJacobian();
+		for (let i = 0; i < this.POEInfo.length; i++)
+		{
+			this.generatePOEInfo(i);
+		}
 
 		this.Draw();
 	}
